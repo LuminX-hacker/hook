@@ -4,7 +4,9 @@
 渗透测试专用安全沙箱。静默拦截 AI 不可逆操作，全量审计留痕。
 
 > **危险行为 0 执行 · 测试流程 0 中断 · 攻击链路 100% 留痕**
-![Uploading image.png…]()
+
+<img width="1371" height="796" alt="image" src="https://github.com/user-attachments/assets/4614f229-39d5-464c-8adc-4f38301ed0c6" />
+
 
 ---
 
