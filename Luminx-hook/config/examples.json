@@ -1,0 +1,56 @@
+{
+  "_comment": "配置示例 — 展示如何自定义拦截规则",
+  "version": "2.0",
+  "custom_shell_rules": {
+    "_doc": "添加自定义的 shell 命令拦截规则，写入 critical_destruction.json 的 rules 数组中",
+    "example": [
+      {
+        "id": "custom_my_service",
+        "pattern": "\\bmy_critical_command\\b",
+        "description": "自定义：拦截特定服务的危险操作命令",
+        "severity": "critical"
+      }
+    ]
+  },
+  "custom_url_keywords": {
+    "_doc": "添加自定义的 URL 危险关键词，写入 dangerous_keywords.json 的 url_segment_keywords 中",
+    "example": [
+      {
+        "keyword": "nuke",
+        "description": "自定义：核弹级删除操作"
+      }
+    ]
+  },
+  "custom_http_tools": {
+    "_doc": "添加自定义的 HTTP 客户端工具模式，写入 dangerous_http_methods.json 的 tool_patterns 中",
+    "example": [
+      {
+        "pattern": "\\bmycli\\s+(delete|put|patch)\\b",
+        "description": "自定义工具的删除/修改操作"
+      }
+    ]
+  },
+  "bypass_tips": {
+    "_doc": "如何临时绕过拦截",
+    "methods": [
+      "1. 手动在终端执行被拦截的命令（hooks 只拦截 Claude Code 的工具调用）",
+      "2. 修改 config/ 下的 JSON 配置文件，删除或调整规则",
+      "3. 在 .claude/settings.local.json 中临时禁用对应 hook",
+      "4. 使用 check_intercepted.py 查看拦截记录后手动重测"
+    ]
+  },
+  "pentest_safe_operations": {
+    "_doc": "以下渗透测试操作默认放行，不受影响",
+    "allowed": [
+      "nmap 扫描",
+      "sqlmap 读模式（不写文件/不执行修改）",
+      "curl GET/HEAD/OPTIONS 请求",
+      "dirb/gobuster/dirsearch 目录扫描",
+      "subfinder/amass 子域名枚举",
+      "httpx/nuclei 探测",
+      "信息收集、漏洞扫描、PoC 验证（只读）",
+      "查看/读取文件和配置",
+      "测试认证逻辑（不删除/修改账号）"
+    ]
+  }
+}
