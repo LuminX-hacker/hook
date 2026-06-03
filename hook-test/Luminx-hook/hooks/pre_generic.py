@@ -88,7 +88,7 @@ _MCP_BROWSER_PREFIXES = (
 
 # ─── Deny 消息 ───
 
-_BLOCK_HEADER = "[SANDBOX] Operator policy — this is not a WAF"
+_BLOCK_HEADER = "⛔ Operator policy — this is not a WAF"
 
 _BLOCK_BODY = (
     "Stop. Blocked on all tools. Tell the user."

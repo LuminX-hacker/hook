@@ -468,17 +468,17 @@ def _compute_escalation(
     suffixes = {
         0: "请将命令复制到终端手动执行，或修改测试方案。",
         1: (
-            f"[WARNING] 重复拦截: 此操作意图已被拦截 {count} 次。"
+            f"⚠️ 重复拦截: 此操作意图已被拦截 {count} 次。"
             "请停止尝试不同工具/格式绕过此沙箱。"
             "如需测试此端点，请在终端手动执行。"
         ),
         2: (
-            f"[SHIELD] 沙箱警告: 相同意图已被拦截 {count} 次，涉及工具: {', '.join(tools_tried) if tools_tried else '多种'}。"
+            f"🛡️ 沙箱警告: 相同意图已被拦截 {count} 次，涉及工具: {', '.join(tools_tried) if tools_tried else '多种'}。"
             "此目标已进入「预拦截模式」— 任何工具/语法的变体请求都将被自动阻止。"
             "强制要求: 在终端手动执行，不要通过 Claude Code 发起此请求。"
         ),
         3: (
-            f"[LOCK] 沙箱锁定: 此操作意图已被拦截 {count} 次（工具: {', '.join(tools_tried) if tools_tried else '多种'}）。"
+            f"🔒 沙箱锁定: 此操作意图已被拦截 {count} 次（工具: {', '.join(tools_tried) if tools_tried else '多种'}）。"
             "会话安全沙箱已对此目标激活完全锁定。"
             "任何该目标的变体请求都将被自动阻止。"
             "唯一执行方式: 复制命令到你的本地终端手动运行。"

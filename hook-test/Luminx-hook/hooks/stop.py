@@ -30,13 +30,13 @@ def _build_summary(stats: dict[str, Any]) -> str:
 
     lines = [
         "",
-        "+========================================+",
-        "|  [SHIELD] Security Sandbox Audit Report  |",
-        "+========================================+",
+        "╔══════════════════════════════════════════╗",
+        "║  🛡️  安全沙箱会话审计报告                ║",
+        "╚══════════════════════════════════════════╝",
         "",
-        f"  Total blocks:       {total}",
-        f"  Unique intents:     {unique}",
-        f"  Preemptive targets: {preemptive}",
+        f"  总拦截次数:     {total}",
+        f"  独立危险意图:   {unique}",
+        f"  预拦截目标数:   {preemptive}",
         "",
     ]
 

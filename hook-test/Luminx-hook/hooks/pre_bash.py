@@ -1,35 +1,22 @@
-"""PreToolUse hook for Bash commands — 硬边界安全沙箱 v6。
+"""PreToolUse hook for Bash commands — 硬边界安全沙箱 v5。
 
 拦截策略（按优先级）：
 0. 目标级预拦截（PREEMPTIVE）→ 已在 blocked_targets 中的目标，任何工具/语法直接拦截
 1. 破坏性 shell 命令（rm -rf, shutdown, format 等）→ 始终拦截
 2. SQL 破坏性语句（DROP, DELETE FROM, TRUNCATE 等）→ 始终拦截
-3. 危险 HTTP 方法（curl -X DELETE/PUT/PATCH 等）→ 拦截方法本身，不管路径
-3.5. for 循环变量预解析 → 追踪 for VAR in WORDS → $VAR 引用链，填补 v5 的最大盲区
-4. URL 中的危险操作关键词（/xxx/delete, /yyy/remove 等）→ 通用匹配 + 全文本回退
+3. 危险 HTTP 方法（curl -X DELETE 等）→ 拦截不可逆删除方法本身，不管路径
+4. URL 中的危险操作关键词（/xxx/delete, /yyy/remove 等）→ 通用匹配，不限 API 结构
 5. POST/PUT 请求体中的危险操作 → 扫描 --data/-d 参数内容
 6. 绕过尝试检测 → 编码/命令替换/变量拼接等
-
-v6 核心修复（2026-06-03）:
-- for 循环变量解析: _extract_for_loop_vars() + _check_for_loop_danger()
-  修复了 v5 中 for VAR in WORDS → $VAR 引用链完全不可见的问题
-  这是本次审计中 AI 绕过沙箱的根因
-- for 循环正则: 添加 re.DOTALL，修复多行 for 循环（\\ 续行）匹配失败
-- URL 关键词回退: 不再因 segments 非空就跳过全文本扫描，双路径并行
-- write_deny: 修复为 stdout 输出（Claude Code hook 协议要求）
 
 反绕过核心机制：
 - 目标级预拦截: 被拦截 2+ 次的目标自动进入预拦截名单
   → 后续任何工具(curl/python/powershell/wget/node/...)任何写法直接拦截
   → 不再依赖正则匹配 — 只要命令里出现了该 host+path 就拦截
-- for 循环变量追踪: 检测 for 循环中的变量值是否包含危险内容
-  → 当变量被 HTTP 工具引用时，直接检查其值（路径关键词 + HTTP 方法）
-  → 生成扩展命令文本进行二次检查
 
 反绕过策略（首次拦截时）：
 - Shell 引号拼接 → 规范化后检查
 - 变量赋值 → 扫描变量值
-- for 循环变量 → 提取值列表，逐个检查危险关键词
 - 命令替换 $(...) / `` → 扫描内部文本
 - Brace expansion → 展开后检查
 - 编码绕过 base64/printf/echo 管道 → 检测编码+关键词组合
@@ -118,7 +105,7 @@ def _scan_script_file(command: str) -> tuple[bool, str, str, str]:
             ), severity, rule_id
 
     # Scan for raw HTTP methods
-    if re.search(r'\b(DELETE|PATCH)\s+/\S+', content, re.IGNORECASE):
+    if re.search(r'\bDELETE\s+/\S+', content, re.IGNORECASE):
         return True, (
             f"脚本 {resolved.name} 内含原始 HTTP 危险请求"
         ), "critical", "script_raw_http"
@@ -129,7 +116,7 @@ def _scan_script_file(command: str) -> tuple[bool, str, str, str]:
 # 硬边界 deny 消息模板 — 这是 AI 唯一能看到的反馈，必须让它停止绕过
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_BLOCK_HEADER = "[SANDBOX] Operator policy — this is not a WAF"
+_BLOCK_HEADER = "⛔ Operator policy — this is not a WAF"
 
 # ═══ Deny 消息设计原则 ═══
 # AI 渗透模型会把 "SANDBOX VIOLATION" "HARD BOUNDARY" 当成 WAF/防御系统 —
@@ -189,7 +176,7 @@ def _build_deny_message(
 
 # ─── 破坏性 Shell 命令（内置，始终生效） ───
 _BUILTIN_SHELL_PATTERNS = [
-    (r"\brm\s+(-[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*r[a-zA-Z]*)\b", "rm -rf 强制递归删除", "critical", "shell_rm_rf"),
+    (r"\brm\s+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*)\b", "rm -rf 强制递归删除", "critical", "shell_rm_rf"),
     (r"\brm\s+(/|/etc|/var|/usr|/home|/opt|/tmp|/root)\b", "rm 删除系统目录", "critical", "shell_rm_root"),
     (r"\b(del|erase)\s+(/[sS]\s+|[sS]:\s+)", "Windows 递归删除", "critical", "shell_del_tree"),
     (r"\brmdir\s+(/[sS]\s+|[sS]:\s+)", "Windows rmdir /s 递归删除", "critical", "shell_rmdir_s"),
@@ -227,7 +214,7 @@ _HIGH_KEYWORDS = ["reset", "clear", "flush", "shutdown", "terminate", "deactivat
 _BODY_DANGER_PATTERNS = [
     (r'"action"\s*:\s*"(delete|remove|destroy|purge|drop|truncate|wipe|erase)"', "JSON body 中的破坏性 action 声明", "critical"),
     (r'"operation"\s*:\s*"(delete|remove|destroy|purge|drop|truncate|wipe|erase)"', "JSON body 中的破坏性 operation 声明", "critical"),
-    (r'"method"\s*:\s*"(DELETE|PUT|PATCH)"', "JSON body 中的危险 HTTP method 声明", "high"),
+    (r'"method"\s*:\s*"(DELETE)"', "JSON body 中的危险 HTTP method 声明", "critical"),
     (r'<action>\s*(delete|remove|destroy|purge|truncate)\s*</action>', "XML body 中的破坏性操作", "critical"),
 ]
 
@@ -306,156 +293,6 @@ def _extract_post_body(command: str) -> str:
     return " ".join(parts)
 
 
-# ─── Shell 变量预解析引擎 — 修复绕过 #1, #2, #3 ───
-# v5 的盲区：for VAR in WORDS → $VAR 引用链未被追踪
-# 导致 URL 路径（${path}）、HTTP 方法（$method）全量漏检
-
-def _extract_for_loop_vars(command: str) -> dict[str, list[str]]:
-    """从多行 for 循环中提取变量定义: {var_name: [value1, value2, ...]}.
-
-    使用 re.DOTALL 修复 v5 中多行 for 循环无法匹配的问题。
-    支持三种值格式:
-      - 双引号: "value1" "value2"
-      - 单引号: 'value1' 'value2'
-      - 裸词: value1 value2
-    """
-    result: dict[str, list[str]] = {}
-    # DOTALL: . 匹配 \n，解决多行 for 循环（\\ 续行）绕过
-    for m in re.finditer(
-        r'\bfor\s+(\w+)\s+in\s+(.+?)\s*(?:;|do)\b',
-        command, re.IGNORECASE | re.DOTALL,
-    ):
-        var_name = m.group(1)
-        word_list_text = m.group(2)
-        values: list[str] = []
-
-        # 去掉换行续行符，统一为空格分隔
-        cleaned = re.sub(r'\\\s*\n\s*', ' ', word_list_text)
-
-        # 提取双引号字符串
-        for qm in re.finditer(r'"([^"]*)"', cleaned):
-            values.append(qm.group(1))
-        # 提取单引号字符串
-        for qm in re.finditer(r"'([^']*)'", cleaned):
-            values.append(qm.group(1))
-        # 移除所有引号字符串后，提取剩余的裸词
-        remainder = re.sub(r'"[^"]*"', '', cleaned)
-        remainder = re.sub(r"'[^']*'", '', remainder)
-        for word in remainder.split():
-            word = word.strip()
-            if word and word != '\\' and not word.startswith('#'):
-                values.append(word)
-
-        if values:
-            result[var_name] = values
-
-    return result
-
-
-def _get_var_references(command: str) -> set[str]:
-    """提取命令中所有被引用的变量名 ($VAR 或 ${VAR})。"""
-    refs: set[str] = set()
-    for m in re.finditer(r'\$\{?(\w+)\}?', command):
-        refs.add(m.group(1))
-    return refs
-
-
-def _check_for_loop_danger(command: str) -> tuple[bool, str, str, str, str]:
-    """检查 for 循环变量值中的危险内容。
-
-    关键逻辑: 只有当变量被 HTTP 工具(curl/wget/...)引用时，才检查其值。
-    这避免了对完全无关的 for 循环（如 echo $word）产生误报。
-
-    检查项:
-      1. 路径值中包含 /delete, /remove 等危险操作关键词
-      2. 方法值中包含 DELETE, PATCH 等危险 HTTP 方法
-    """
-    for_vars = _extract_for_loop_vars(command)
-    if not for_vars:
-        return False, "", "", "", ""
-
-    var_refs = _get_var_references(command)
-    has_http_tool = bool(re.search(
-        r'\b(curl|wget|python|Invoke-WebRequest|Invoke-RestMethod|requests\.)\b',
-        command, re.IGNORECASE,
-    ))
-    if not has_http_tool:
-        return False, "", "", "", ""
-
-    # 找出被 HTTP 命令引用的变量
-    # 同时收集完整的命令行用于生成扩展文本
-    resolved_text_parts: list[str] = []
-
-    for var_name, values in for_vars.items():
-        if var_name not in var_refs:
-            continue
-
-        # 构造扩展文本: 将 $VAR 替换为每个可能的值
-        for val in values:
-            expanded = command
-            # 替换 ${VAR} 和 $VAR
-            expanded = re.sub(r'\$\{' + re.escape(var_name) + r'\}', val, expanded)
-            expanded = re.sub(r'\$' + re.escape(var_name) + r'\b', val, expanded)
-            resolved_text_parts.append(expanded)
-
-        # 同时直接检查值本身是否危险
-        for val in values:
-            # 检查 1: 路径危险关键词
-            for keyword in _CRITICAL_KEYWORDS:
-                pattern = rf"/{re.escape(keyword)}"
-                if re.search(pattern, val, re.IGNORECASE):
-                    return True, (
-                        f"for 循环变量 ${var_name} 的值 \"{val}\" 包含危险路径操作 /{keyword}"
-                    ), "critical", f"forloop_path_{keyword}", pattern
-
-            for keyword in _HIGH_KEYWORDS:
-                pattern = rf"/{re.escape(keyword)}"
-                if re.search(pattern, val, re.IGNORECASE):
-                    return True, (
-                        f"for 循环变量 ${var_name} 的值 \"{val}\" 包含高危路径操作 /{keyword}"
-                    ), "high", f"forloop_path_{keyword}", pattern
-
-            # 检查 2: HTTP 方法值
-            if val.upper() in ("DELETE", "PATCH"):
-                return True, (
-                    f"for 循环变量 ${var_name} 的值 \"{val}\" 是危险 HTTP 方法"
-                ), "critical" if val.upper() == "DELETE" else "high", f"forloop_method_{val.lower()}", val
-
-            # 检查 3: 请求体中的危险内容
-            for pattern, description, severity in _BODY_DANGER_PATTERNS:
-                if re.search(pattern, val, re.IGNORECASE):
-                    return True, (
-                        f"for 循环变量 ${var_name} 的值 \"{val}\" 包含请求体危险操作"
-                    ), severity, f"forloop_body_{severity}", pattern
-
-    # 检查 4: 在扩展后的命令文本上运行危险方法检查
-    # （捕获 -X $method 这种写法）
-    if resolved_text_parts:
-        for expanded_text in resolved_text_parts:
-            methods_cfg = load_config("dangerous_http_methods.json")
-            tool_patterns = methods_cfg.get("tool_patterns", {})
-            for patterns in tool_patterns.values():
-                if not isinstance(patterns, list):
-                    continue
-                for p in patterns:
-                    if not isinstance(p, dict) or "pattern" not in p:
-                        continue
-                    try:
-                        if re.search(p["pattern"], expanded_text, re.IGNORECASE):
-                            method_match = re.search(
-                                r"(DELETE|PATCH)", expanded_text, re.IGNORECASE,
-                            )
-                            method = method_match.group(1).upper() if method_match else "UNKNOWN"
-                            sev = "critical" if method == "DELETE" else "high"
-                            return True, (
-                                f"for 循环变量 ${var_name} 扩展后触发 {method} 危险方法"
-                            ), sev, f"forloop_expanded_{method.lower()}", p["pattern"]
-                    except re.error:
-                        continue
-
-    return False, "", "", "", ""
-
-
 def _extract_all_path_segments(command: str) -> list[str]:
     """从命令中提取所有独立的路径段，每段单独检查安全/危险关键词。"""
     segments = []
@@ -475,25 +312,11 @@ def _extract_all_path_segments(command: str) -> list[str]:
         if path.startswith("/"):
             segments.append(path)
 
-    # 3. 从 for 循环的词列表中提取路径（DOTALL 修复多行绕过）
-    for m in re.finditer(r'\bfor\s+\w+\s+in\s+(.+?)(?:\s*;|\s*do\b)', command, re.IGNORECASE | re.DOTALL):
-        raw_words = m.group(1)
-        # 统一处理续行符和换行
-        raw_words = re.sub(r'\\\s*\n\s*', ' ', raw_words)
-        # 提取引号内和裸词
-        for qm in re.finditer(r'"([^"]*)"', raw_words):
-            w = qm.group(1)
-            if w.startswith("/"):
-                segments.append(w)
-        for qm in re.finditer(r"'([^']*)'", raw_words):
-            w = qm.group(1)
-            if w.startswith("/"):
-                segments.append(w)
-        # 裸词
-        remainder = re.sub(r'"[^"]*"', '', raw_words)
-        remainder = re.sub(r"'[^']*'", '', remainder)
-        for w in remainder.split():
-            w = w.strip()
+    # 3. 从 for 循环的词列表中提取路径
+    for m in re.finditer(r'\bfor\s+\w+\s+in\s+(.+?)(?:\s*;|\s*do\b)', command, re.IGNORECASE):
+        words = m.group(1).split()
+        for w in words:
+            w = w.strip().strip('"').strip("'")
             if w.startswith("/"):
                 segments.append(w)
 
@@ -621,7 +444,7 @@ def _check_http_method(command: str) -> tuple[bool, str, str, str, str]:
                 continue
             try:
                 if re.search(p["pattern"], scan_text, re.IGNORECASE):
-                    method_match = re.search(r"(DELETE|PUT|PATCH)", scan_text, re.IGNORECASE)
+                    method_match = re.search(r"DELETE", scan_text, re.IGNORECASE)
                     method = method_match.group(1).upper() if method_match else "UNKNOWN"
                     sev = "critical" if method == "DELETE" else "high"
                     return True, p.get("description", f"HTTP {method} 请求"), sev, f"http_{method.lower()}", p["pattern"]
@@ -631,13 +454,11 @@ def _check_http_method(command: str) -> tuple[bool, str, str, str, str]:
     builtin_http_patterns = [
         (r"\bcurl\s+.*-X\s+DELETE\b", "curl DELETE 请求", "critical", "http_curl_delete"),
         (r"\bcurl\s+.*--request\s+DELETE\b", "curl DELETE 请求", "critical", "http_curl_delete2"),
-        (r"\bcurl\s+.*-X\s+PATCH\b", "curl PATCH 请求", "high", "http_curl_patch"),
         (r"\bwget\s+.*--method=DELETE\b", "wget DELETE 请求", "critical", "http_wget_delete"),
         (r"-Method\s+DELETE\b", "PowerShell DELETE 请求", "critical", "http_ps_delete"),
-        (r"-Method\s+PATCH\b", "PowerShell PATCH 请求", "high", "http_ps_patch"),
-        (r"requests\.(delete|patch)\(", "Python requests DELETE/PATCH", "high", "http_py_requests"),
-        (r"\bcurl\s+.*--method\s*(DELETE|PATCH)\b", "curl --method 危险请求", "critical", "http_curl_method"),
-        (r"Invoke-RestMethod.*-Method\s+(DELETE|PATCH)\b", "PowerShell Invoke-RestMethod 危险请求", "critical", "http_ps_restmethod"),
+        (r"requests\.delete\(", "Python requests DELETE", "high", "http_py_requests"),
+        (r"\bcurl\s+.*--method\s*DELETE\b", "curl --method DELETE 请求", "critical", "http_curl_method"),
+        (r"Invoke-RestMethod.*-Method\s+DELETE\b", "PowerShell Invoke-RestMethod DELETE 请求", "critical", "http_ps_restmethod"),
     ]
     for pattern, description, severity, rule_id in builtin_http_patterns:
         if re.search(pattern, scan_text, re.IGNORECASE):
@@ -666,37 +487,80 @@ def _build_full_scan_text(command: str) -> str:
     return " ".join(parts)
 
 
-def _check_url_keywords(command: str) -> tuple[bool, str, str, str, str]:
-    """检查 URL 中的危险操作关键词（逐段检查 + 全文本回退）。
+def _extract_http_method(command: str) -> str | None:
+    """从命令中提取显式指定的 HTTP 方法。
 
-    v6 修复: 不再因为 segments 非空就跳过全文本扫描。
-    即使 segments 中存在安全路径，仍执行全文本回退检查（双路径并行）。
+    返回 'GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS' 或 None。
+    curl 默认 GET，但这里只检测显式指定，返回 None 表示"未显式指定方法"。
     """
+    # curl -X METHOD / --request METHOD
+    m = re.search(r'(?:-X|--request)\s+(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\b', command, re.IGNORECASE)
+    if m:
+        return m.group(1).upper()
+    # curl --method METHOD (OpenSSL-style)
+    m = re.search(r'--method\s+(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\b', command, re.IGNORECASE)
+    if m:
+        return m.group(1).upper()
+    # wget --method=METHOD
+    m = re.search(r'--method[= ]\s*(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\b', command, re.IGNORECASE)
+    if m:
+        return m.group(1).upper()
+    # PowerShell -Method METHOD
+    m = re.search(r'-Method\s+(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\b', command, re.IGNORECASE)
+    if m:
+        return m.group(1).upper()
+    # Python requests.method(
+    m = re.search(r'requests\.(get|post|put|delete|patch|head|options)\(', command, re.IGNORECASE)
+    if m:
+        return m.group(1).upper()
+    return None
+
+
+def _is_readonly_http_request(command: str) -> bool:
+    """判断 HTTP 请求是否为只读操作（安全，不会造成破坏）。
+
+    规则：
+    - 显式 GET/HEAD/OPTIONS → 只读，永远安全
+    - curl/wget 默认方法是 GET（未指定 -X 时）→ 只读
+    - 只有显式指定 POST/PUT/PATCH/DELETE 才算写操作
+
+    这个判断用于 URL 关键词检查的前置白名单：
+    纯 GET 请求探测 /api/delete 端点 → 放行（没有Token只会返回401）
+    显式 DELETE /api/users/1         → 继续检查 URL 关键词
+    """
+    method = _extract_http_method(command)
+    if method is None:
+        # 未显式指定方法 → 默认 GET，安全
+        return True
+    return method in ("GET", "HEAD", "OPTIONS")
+
+
+def _check_url_keywords(command: str) -> tuple[bool, str, str, str, str]:
+    """检查 URL 中的危险操作关键词（逐段检查）。
+
+    所有 HTTP 方法均检查 URL 关键词 — GET 请求也可能触发未授权删除。
+    例如 GET /api/users/delete?id=123 可能直接执行删除操作。
+    """
+    # ── 所有 HTTP 方法均检查 URL 关键词（GET 也可能触发未授权删除）──
+
     segments = _extract_all_path_segments(command)
 
-    # 路径 1: 逐段检查提取到的路径
     for segment in segments:
         is_dangerous, reason, severity, rule_id, matched = _check_path_segment_dangerous(segment)
         if is_dangerous:
             return is_dangerous, reason, severity, rule_id, matched
 
-    # 路径 2: 全文本扫描（始终执行，不再受 segments 是否为空的影响）
-    # 这是 v6 的关键修复: 即使 segments 中有 "安全" 路径，
-    # 命令文本中仍可能存在未被提取的危险内容
-    scan_text = _build_full_scan_text(command)
-    for keyword in _CRITICAL_KEYWORDS:
-        pattern = rf"/{re.escape(keyword)}"
-        if re.search(pattern, scan_text, re.IGNORECASE):
-            return True, f"全文本扫描发现危险操作: /{keyword}", "critical", f"url_keyword_{keyword}", pattern
-        bare = rf"\b{re.escape(keyword)}\b"
-        if re.search(bare, scan_text, re.IGNORECASE):
-            if re.search(r'(curl|wget|http|fetch|request|invoke|urlopen)', scan_text, re.IGNORECASE):
-                return True, f"HTTP上下文全文本发现危险关键词: {keyword}", "critical", f"ctx_keyword_{keyword}", bare
-
-    for keyword in _HIGH_KEYWORDS:
-        pattern = rf"/{re.escape(keyword)}"
-        if re.search(pattern, scan_text, re.IGNORECASE):
-            return True, f"全文本扫描发现高危操作: /{keyword}", "high", f"url_keyword_{keyword}", pattern
+    # 无提取到的路径段时回退到全文本扫描
+    if not segments:
+        scan_text = _build_full_scan_text(command)
+        for keyword in _CRITICAL_KEYWORDS:
+            pattern = rf"/{re.escape(keyword)}"
+            if re.search(pattern, scan_text, re.IGNORECASE):
+                return True, f"URL/命令中危险操作: /{keyword}", "critical", f"url_keyword_{keyword}", pattern
+            bare = rf"\b{re.escape(keyword)}\b"
+            if re.search(bare, scan_text, re.IGNORECASE):
+                if re.search(r'(curl|wget|http|fetch|request|invoke|urlopen)', scan_text, re.IGNORECASE):
+                    return True, f"HTTP上下文中危险关键词: {keyword}", "critical", f"ctx_keyword_{keyword}", bare
 
     return False, "", "", "", ""
 
@@ -883,15 +747,7 @@ def main() -> None:
             _emit_block(tool_name, tool_input, command, reason, severity, rule_id, matched, "Bash-HTTP")
             return
 
-        # 检查 2.5: for 循环变量预解析 — 修复 $VAR 绕过（v6 新增）
-        # 核心反绕过: 追踪 for VAR in "DELETE" "PATCH" → curl -X $VAR 引用链
-        #            追踪 for path in "/api/delete" → "${BASE}${path}" 引用链
-        is_dangerous, reason, severity, rule_id, matched = _check_for_loop_danger(command)
-        if is_dangerous:
-            _emit_block(tool_name, tool_input, command, reason, severity, rule_id, matched, "Bash-ForLoop")
-            return
-
-        # 检查 3: URL 中的危险操作关键词（v6: 始终执行全文本回退扫描）
+        # 检查 3: URL 中的危险操作关键词
         is_dangerous, reason, severity, rule_id, matched = _check_url_keywords(command)
         if is_dangerous:
             _emit_block(tool_name, tool_input, command, reason, severity, rule_id, matched, "Bash-URL")

@@ -25,10 +25,10 @@
       {"keyword": "invalidate", "description": "使失效操作"}
     ],
     "medium": [
-      {"keyword": "update", "description": "更新操作（配合PUT/PATCH方法时拦截）"},
-      {"keyword": "modify", "description": "修改操作（配合PUT/PATCH方法时拦截）"},
-      {"keyword": "change", "description": "变更操作（配合PUT/PATCH方法时拦截）"},
-      {"keyword": "config", "description": "配置操作（配合PUT/PATCH/DELETE方法时拦截）"}
+      {"keyword": "update", "description": "更新操作", "_note": "仅当配合 PUT/PATCH/DELETE 方法时触发 — 参见 _check_http_method 前置检查"},
+      {"keyword": "modify", "description": "修改操作", "_note": "仅当配合 PUT/PATCH/DELETE 方法时触发"},
+      {"keyword": "change", "description": "变更操作", "_note": "仅当配合 PUT/PATCH/DELETE 方法时触发"},
+      {"keyword": "config", "description": "配置操作", "_note": "仅当配合 PUT/PATCH/DELETE 方法时触发"}
     ]
   },
   "body_keywords": {

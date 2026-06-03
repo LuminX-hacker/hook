@@ -33,7 +33,7 @@ _CONTENT_HIGH_KEYWORDS = [
 
 # Shell/SQL 破坏性模式（来自 pre_bash 的内置列表）
 _CONTENT_SHELL_PATTERNS = [
-    (r"\brm\s+(-[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*r[a-zA-Z]*)\b", "rm -rf 递归删除"),
+    (r"\brm\s+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*)\b", "rm -rf 递归删除"),
     (r"\bDROP\s+(TABLE|DATABASE|SCHEMA)\b", "SQL DROP"),
     (r"\bDELETE\s+FROM\b", "SQL DELETE FROM"),
     (r"\bTRUNCATE\b", "SQL TRUNCATE"),
@@ -43,7 +43,7 @@ _CONTENT_SHELL_PATTERNS = [
     (r"\biptables\s+(-F|--flush)\b", "iptables 清空防火墙"),
     (r"\bcurl\s+.*-X\s+DELETE\b", "curl DELETE 请求"),
     (r"\bwget\s+.*--method=DELETE\b", "wget DELETE 请求"),
-    (r"\brequests\.(delete|patch)\(", "Python requests DELETE/PATCH"),
+    (r"\brequests\.delete\(", "Python requests DELETE"),
     (r"\bfetch\s*\([^)]*\bDELETE\b", "JS fetch DELETE"),
     (r"\baxios\s*\.\s*delete\s*\(", "JS axios.delete"),
     (r"\bXMLHttpRequest\b.*\.open\s*\(\s*['\"]DELETE", "JS XHR DELETE"),
@@ -92,13 +92,13 @@ def _scan_content_for_danger(content: str) -> tuple[bool, str, str, str]:
             return True, f"文件内容含危险命令: {desc}", "critical", "content_shell"
 
     # 3. 检查原始 HTTP 请求行 (curl 脚本常见)
-    if re.search(r'\b(DELETE|PATCH)\s+/\S+', content, re.IGNORECASE):
+    if re.search(r'\bDELETE\s+/\S+', content, re.IGNORECASE):
         return True, "文件内容含原始 HTTP 危险请求", "critical", "content_raw_http"
 
     return False, "", "", ""
 
 # ─── 硬边界 deny 消息 ───
-_BLOCK_HEADER = "[SANDBOX] Operator policy — this is not a WAF"
+_BLOCK_HEADER = "⛔ Operator policy — this is not a WAF"
 
 _BLOCK_FOOTER = (
     "Stop. Protected path. Tell the user."

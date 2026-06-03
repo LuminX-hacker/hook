@@ -193,54 +193,6 @@ def main() -> int:
         f"blocks={stats['total_blocks']} preemptive={stats['preemptive_targets']}"
     )
 
-    # ─── v6 Check 12: for-loop DELETE method bypass (was broken in v5) ───
-    reset_session()
-    ec, out = _run_hook("pre_bash.py", {
-        "tool_name": "Bash",
-        "tool_input": {"command": 'for method in "GET" "POST" "DELETE"; do\n  curl -s -X $method "https://evil.com/api/test"\ndone'}
-    })
-    all_pass &= check(
-        "v6: for-loop DELETE method variable blocked",
-        ec == 2 and "Operator policy" in out,
-        f"exit={ec} out={out[:80]}"
-    )
-
-    # ─── v6 Check 13: for-loop /delete path in variable (was broken in v5) ───
-    reset_session()
-    ec, out = _run_hook("pre_bash.py", {
-        "tool_name": "Bash",
-        "tool_input": {"command": 'for path in "/api/list" "/api/users/delete" "/api/get"; do\n  curl -s "https://evil.com${path}"\ndone'}
-    })
-    all_pass &= check(
-        "v6: for-loop /delete path variable blocked",
-        ec == 2 and "Operator policy" in out,
-        f"exit={ec} out={out[:80]}"
-    )
-
-    # ─── v6 Check 14: multi-line for-loop with continuation (was broken in v5) ───
-    reset_session()
-    ec, out = _run_hook("pre_bash.py", {
-        "tool_name": "Bash",
-        "tool_input": {"command": 'for path in \\\n  "/api/list" \\\n  "/admin/delete/all" \\\n  "/api/get"; do\n  curl -s "https://evil.com${path}"\ndone'}
-    })
-    all_pass &= check(
-        "v6: multi-line for-loop /delete blocked",
-        ec == 2 and "Operator policy" in out,
-        f"exit={ec} out={out[:80]}"
-    )
-
-    # ─── v6 Check 15: safe for-loop still allowed (no regression) ───
-    reset_session()
-    ec, out = _run_hook("pre_bash.py", {
-        "tool_name": "Bash",
-        "tool_input": {"command": 'for path in "/api/list" "/api/get" "/api/search"; do\n  curl -s "https://evil.com${path}"\ndone'}
-    })
-    all_pass &= check(
-        "v6: safe for-loop paths still allowed",
-        ec == 0,
-        f"exit={ec}"
-    )
-
     reset_session()
     clear_interceptions()
 

@@ -1,8 +1,8 @@
 # Luminx-hook — Claude Code AI 渗透安全沙箱
 
-渗透测试专用安全沙箱。静默拦截 AI 不可逆操作，全量审计留痕。
+渗透测试专用安全沙箱。**只拦截不可逆删除操作**，放行上传/修改/探测。全量审计留痕。
 
-> **危险行为 0 执行 · 测试流程 0 中断 · 攻击链路 100% 留痕**
+> **删不了 · 扫得动 · 全留痕**
 
 ---
 
@@ -15,7 +15,6 @@ cp .claude/settings.local.template.json .claude/settings.local.json
 
 # 2. 自检
 python Luminx-hook/selftest.py
-# → 11/11 PASS
 
 # 3. 启动 Claude Code
 ```
@@ -51,8 +50,12 @@ Luminx-hook/
 │   ├── state.py             # 意图指纹 + 预拦截名单
 │   └── logger.py            # JSONL + 崩溃日志
 ├── config/                  # 规则配置 (JSON)
-├── selftest.py              # 11项自检
-├── check_intercepted.py     # CLI 查看工具
+│   ├── critical_destruction.json   # 破坏性 shell/SQL 命令规则
+│   ├── dangerous_http_methods.json # HTTP 方法拦截（仅 DELETE）
+│   ├── dangerous_keywords.json     # URL 危险关键词
+│   └── examples.json               # 自定义规则示例
+├── selftest.py              # 自检脚本
+├── check_intercepted.py     # CLI 拦截记录查看工具
 └── logs/                    # 运行时日志 (gitignore)
 ```
 
@@ -60,19 +63,20 @@ Luminx-hook/
 
 ## 拦截策略
 
-| 优先级 | 检查项 | 拦截内容 |
-|--------|--------|---------|
-| **0** | 预拦截名单 | 被拦2+次的 host+path，任何工具直接拦截 |
-| **1** | 破坏性 Shell | `rm -rf`, `format`, `shutdown`, `dd`, `diskpart` |
-| **2** | SQL 破坏 | `DROP TABLE`, `DELETE FROM`, `TRUNCATE` |
-| **3** | HTTP 方法 | `DELETE`, `PATCH`（PUT 已放行） |
-| **4** | URL 关键词 | `/delete`, `/remove`, `/destroy`, `/purge`, `/drop` |
-| **5** | 请求体 | `--data` 中的 `"action":"delete"` 等 |
-| **6** | 绕过检测 | base64/printf/xargs + HTTP 组合 |
-| **7** | 脚本文件 | 追踪 `bash/py/node/./script` 并扫描内容 |
-| **8** | 文件内容 | Write/Edit 写入内容自动扫描 |
-| **9** | 原始HTTP | Burp/Postman/HTTPie MCP 的 `DELETE /path HTTP/1.1` |
-| **10** | 浏览器JS | MCP 浏览器内 `fetch()/axios/XHR` DELETE |
+**核心原则：只拦截不可逆删除，放行修改/上传/探测。**
+
+| 优先级 | 检查项 | 拦截内容 | 状态 |
+|--------|--------|---------|------|
+| **0** | 预拦截名单 | 被拦2+次的 host+path，任何工具直接拦截 | ✅ |
+| **1** | 破坏性 Shell | `rm -rf`, `format`, `shutdown`, `dd`, `diskpart`, `mkfs`, `iptables -F` | ✅ |
+| **2** | SQL 破坏 | `DROP TABLE/DATABASE/SCHEMA/INDEX`, `DELETE FROM`, `TRUNCATE`, `ALTER ... DROP` | ✅ |
+| **3** | HTTP 方法 | **仅 `DELETE`**（PUT/PATCH 已放行） | ✅ |
+| **4** | URL 关键词 | `/delete`, `/remove`, `/destroy`, `/purge`, `/truncate`, `/drop`, `/wipe`, `/erase` — **所有 HTTP 方法均检查（含 GET）** | ✅ |
+| **5** | URL 高危词 | `/reset`, `/clear`, `/shutdown`, `/terminate`, `/revoke`, `/invalidate` | ✅ |
+| **6** | 请求体 | `--data` 中的 `"action":"delete"`, `"operation":"destroy"` 等 | ✅ |
+| **7** | 绕过检测 | base64/printf/xargs + HTTP 组合 | ✅ |
+| **8** | 脚本文件 | 追踪 `bash/py/node/./script` 并扫描内容 | ✅ |
+| **9** | 文件内容 | Write/Edit 写入内容自动扫描危险 URL 和命令 | ✅ |
 
 ### 已关闭的绕过路径
 
@@ -86,14 +90,29 @@ Luminx-hook/
 | 变量/编码/引号拼接 | 规范化+绕过检测 |
 | heredoc/grep模式误报 | 上下文剥离（不把数据当命令） |
 
-### 放行
+---
+
+## 放行清单
 
 ```
+✅ curl/wget/httpie POST
+✅ curl/wget/httpie PUT     — 上传/全量替换
+✅ curl/wget/httpie PATCH   — 部分修改
+✅ curl GET/HEAD/OPTIONS    — 无 URL 危险关键词时放行
 ✅ nmap / sqlmap(只读) / dirb / gobuster / subfinder / amass
-✅ curl GET/HEAD/OPTIONS/PUT
 ✅ 读取文件、查看配置
-✅ 漏洞扫描、PoC 验证 (只读)
+✅ 漏洞扫描、PoC 验证
 ✅ 认证逻辑测试
+```
+
+## 拦截清单
+
+```
+❌ curl -X DELETE /api/users/1
+❌ curl /api/users/delete?id=1        — GET 也拦（未授权删除风险）
+❌ curl -X POST /api/items/remove/5
+❌ rm -rf /path
+❌ SQL: DROP / DELETE FROM / TRUNCATE
 ```
 
 ---
@@ -144,16 +163,24 @@ python Luminx-hook/check_intercepted.py clear             # 清除+重置
 {"keyword": "nuke", "description": "核弹操作"}
 ```
 
-### 放行/拦截 HTTP 方法
+### HTTP 方法（当前仅拦截 DELETE）
 
 ```json
 // dangerous_http_methods.json → blocked_methods
-"critical": ["DELETE"], "high": ["PATCH"]
+"critical": ["DELETE"]   // 仅 DELETE，PUT/PATCH 已放行
 ```
 
 ---
 
 ## 常见问题
+
+**Q: 为什么 GET /api/delete 也被拦截？**
+
+A: 未授权 GET 请求可能直接触发删除（如 `GET /api/users/delete?id=123`），不加白名单假设。
+
+**Q: PATCH/PUT 放行了吗？**
+
+A: 是的。PATCH（部分修改）和 PUT（上传/替换）均已放行，只有 DELETE 方法被拦截。
 
 **Q: AI 浪费 token 研究为什么被拦截？**
 
@@ -166,10 +193,6 @@ A: `python Luminx-hook/check_intercepted.py clear` 临时清除，或修改 `con
 **Q: 钩子报错？**
 
 A: 查看 `logs/crash.log` 定位根因。重启 Claude Code 通常解决。
-
-**Q: 浏览器 MCP / Burp MCP 绕过？**
-
-A: `pre_generic.py` 已覆盖所有 MCP 工具，检测 URL + 原始HTTP + JS fetch/axios。
 
 **Q: 临时禁用？**
 
@@ -189,4 +212,4 @@ A: 注释 `.claude/settings.local.json` 中对应条目。
 
 ---
 
-v5.1 — 全工具覆盖 · 脚本追踪 · 内容扫描 · FAIL CLOSED
+v5.2 — 不可逆删除拦截 · PATCH/PUT 放行 · GET 路径检查 · FAIL CLOSED

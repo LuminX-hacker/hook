@@ -45,21 +45,13 @@ def write_allow() -> None:
 def write_deny(reason: str) -> None:
     """Output deny decision — exit 2 + reason message to block the tool call.
 
-    Claude Code hook protocol: exit 2 + stdout text = deny with message.
-    The message on stdout is shown to Claude as tool error output,
-    providing the feedback needed to change approach.
-
-    Handles Windows GBK encoding by replacing unencodable characters.
+    The reason text will be shown to Claude as an error message,
+    causing it to revise its approach.
 
     Args:
         reason: Human-readable explanation for the denial.
     """
-    try:
-        print(reason, file=sys.stdout)
-    except UnicodeEncodeError:
-        # Windows GBK stdout can't handle Unicode chars — fall back to ASCII-safe
-        safe = reason.encode("ascii", errors="replace").decode("ascii")
-        print(safe, file=sys.stdout)
+    print(reason, file=sys.stderr)
     sys.exit(2)
 
 

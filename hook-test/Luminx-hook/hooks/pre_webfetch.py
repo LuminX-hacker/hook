@@ -19,7 +19,7 @@ from hooks.logger import log_interception, log_crash
 from hooks.state import record_block, is_target_blocked
 
 # ─── 硬边界 deny 消息 ───
-_BLOCK_HEADER = "[SANDBOX] Operator policy — this is not a WAF"
+_BLOCK_HEADER = "⛔ Operator policy — this is not a WAF"
 
 _BLOCK_FOOTER_BASE = (
     "Stop. URL blocked. Tell the user."

@@ -4,7 +4,7 @@
   "rules": [
     {
       "id": "destroy_rm_rf",
-      "pattern": "\\brm\\s+(-[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*r[a-zA-Z]*)\\b",
+      "pattern": "\\brm\\s+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*)\\b",
       "description": "rm -rf 强制递归删除",
       "severity": "critical"
     },
